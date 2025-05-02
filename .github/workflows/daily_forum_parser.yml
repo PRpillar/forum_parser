@@ -1,4 +1,4 @@
-name: Daily Quora Parser
+name: Daily Forum Parser
 
 on:
   schedule:
@@ -31,11 +31,48 @@ jobs:
           pip install webdriver-manager selenium gspread google-oauth2-tool
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
+      - name: Create credentials helper
+        run: |
+          cat > create_credentials.py << 'EOF'
+          import os
+          import json
+
+          # Create a properly formatted credentials file
+          credentials = {
+              "type": "service_account",
+              "project_id": os.environ.get("GCP_PROJECT_ID"),
+              "private_key_id": os.environ.get("GCP_PRIVATE_KEY_ID"),
+              "private_key": os.environ.get("GCP_PRIVATE_KEY").replace("\\n", "\n"),
+              "client_email": os.environ.get("GCP_CLIENT_EMAIL"),
+              "client_id": os.environ.get("GCP_CLIENT_ID"),
+              "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+              "token_uri": "https://oauth2.googleapis.com/token",
+              "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+              "client_x509_cert_url": os.environ.get("GCP_CLIENT_X509_CERT_URL"),
+              "universe_domain": "googleapis.com",
+              "user_email": os.environ.get("QUORA_EMAIL"),
+              "user_password": os.environ.get("QUORA_PASSWORD")
+          }
+
+          # Write credentials to file
+          with open("credentials.json", "w") as f:
+              json.dump(credentials, f, indent=2)
+
+          print("Credentials file created successfully")
+          EOF
+
       - name: Set up credentials
         env:
-          CREDENTIALS_JSON: ${{ secrets.CREDENTIALS_JSON }}
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_PRIVATE_KEY_ID: ${{ secrets.GCP_PRIVATE_KEY_ID }}
+          GCP_PRIVATE_KEY: ${{ secrets.GCP_PRIVATE_KEY }}
+          GCP_CLIENT_EMAIL: ${{ secrets.GCP_CLIENT_EMAIL }}
+          GCP_CLIENT_ID: ${{ secrets.GCP_CLIENT_ID }}
+          GCP_CLIENT_X509_CERT_URL: ${{ secrets.GCP_CLIENT_X509_CERT_URL }}
+          QUORA_EMAIL: ${{ secrets.QUORA_EMAIL }}
+          QUORA_PASSWORD: ${{ secrets.QUORA_PASSWORD }}
         run: |
-          echo "$CREDENTIALS_JSON" > credentials.json
+          python create_credentials.py
 
       - name: Run Quora parser
         run: |
