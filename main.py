@@ -196,57 +196,7 @@ def setup_webdriver(headless=False):
     
     return driver
 
-def get_2fa_code_from_sheet(gc, spreadsheet_id, max_attempts=5, retry_interval=20):
-    """
-    Attempts to retrieve a 2FA code from a dedicated sheet in the Google Spreadsheet.
-    Will check the sheet up to max_attempts times with retry_interval seconds between attempts.
-    """
-    print(f"\nLooking for 2FA code in spreadsheet...")
-    
-    try:
-        # Open the spreadsheet
-        spreadsheet = gc.open_by_key(spreadsheet_id)
-        
-        # Try to open the "Code" worksheet, create it if it doesn't exist
-        try:
-            code_sheet = spreadsheet.worksheet("Code")
-            print("Found 'Code' sheet for 2FA code")
-        except gspread.exceptions.WorksheetNotFound:
-            # Create the sheet if it doesn't exist
-            code_sheet = spreadsheet.add_worksheet(title="Code", rows="2", cols="2")
-            code_sheet.update_cell(1, 1, "Enter 2FA code here when prompted")
-            print("Created new 'Code' sheet for 2FA code")
-        
-        # Make up to max_attempts attempts to read the code
-        for attempt in range(max_attempts):
-            print(f"Attempt {attempt+1}/{max_attempts} to read 2FA code...")
-            
-            # Get the value from cell A1
-            code_cell = code_sheet.acell("A1").value
-            
-            # Check if the cell contains what looks like a numeric code
-            if code_cell and code_cell.strip().isdigit() and len(code_cell.strip()) >= 4:
-                code = code_cell.strip()
-                print(f"Found 2FA code: {code[:1]}{'*' * (len(code) - 2)}{code[-1:]}")
-                
-                # Clear the code from the sheet after reading it
-                code_sheet.update_cell(1, 1, "Code used at " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-                
-                return code
-            
-            # If no valid code found, wait and retry
-            if attempt < max_attempts - 1:
-                print(f"No valid 2FA code found. Waiting {retry_interval} seconds before retrying...")
-                time.sleep(retry_interval)
-        
-        print("Failed to get 2FA code after maximum attempts")
-        return None
-        
-    except Exception as e:
-        print(f"Error retrieving 2FA code from sheet: {e}")
-        return None
-
-def login_to_quora(driver, email, password, gc=None, spreadsheet_id=None):
+def login_to_quora(driver, email, password):
     """Login to Quora with the provided credentials"""
     try:
         print("\nAttempting to login to Quora...")
@@ -455,111 +405,6 @@ def login_to_quora(driver, email, password, gc=None, spreadsheet_id=None):
         # Wait longer for login to complete
         time.sleep(8)
         
-        # Check for 2FA verification code request
-        try:
-            # Check if we're on a 2FA page - look for input fields for verification code
-            verification_selectors = [
-                "//input[contains(@placeholder, 'code')]",
-                "//input[contains(@placeholder, 'verification')]",
-                "//input[contains(@aria-label, 'code')]",
-                "//div[contains(text(), 'verification code')]//following::input",
-                "//div[contains(text(), 'code')]//following::input"
-            ]
-            
-            needs_2fa = False
-            verification_field = None
-            
-            for selector in verification_selectors:
-                try:
-                    verification_field = WebDriverWait(driver, 3).until(
-                        EC.presence_of_element_located((By.XPATH, selector))
-                    )
-                    needs_2fa = True
-                    print("Found 2FA verification code input field")
-                    break
-                except:
-                    pass
-            
-            # Also check for common 2FA text indicators
-            if not needs_2fa:
-                two_fa_indicators = [
-                    "verification code",
-                    "security code",
-                    "2-step verification",
-                    "enter the code",
-                    "code we sent",
-                    "code below"
-                ]
-                page_text = driver.page_source.lower()
-                
-                for indicator in two_fa_indicators:
-                    if indicator in page_text:
-                        needs_2fa = True
-                        print(f"Detected 2FA requirement based on text: '{indicator}'")
-                        
-                        # Try to find input field again with more general selector
-                        try:
-                            verification_field = WebDriverWait(driver, 3).until(
-                                EC.presence_of_element_located((By.XPATH, "//input[not(@type='hidden') and not(@type='password') and not(@type='email')]"))
-                            )
-                            print("Found general input field for 2FA code")
-                        except:
-                            print("Could not find input field for 2FA code despite 2FA being required")
-                        
-                        break
-            
-            # If 2FA is needed, try to get the code from Google Sheet
-            if needs_2fa and verification_field and gc and spreadsheet_id:
-                print("\n2FA VERIFICATION REQUIRED")
-                print("Please check your email for a verification code from Quora")
-                print("Then enter the code in cell A1 of the 'Code' sheet in your Google Spreadsheet")
-                
-                # Try to get 2FA code from Google Sheet
-                verification_code = get_2fa_code_from_sheet(gc, spreadsheet_id)
-                
-                if verification_code:
-                    # Enter the verification code
-                    verification_field.clear()
-                    verification_field.send_keys(verification_code)
-                    time.sleep(1)
-                    
-                    # Submit the verification code
-                    try:
-                        # First try to press Enter in the field
-                        verification_field.send_keys(Keys.RETURN)
-                        print("Submitted 2FA code using Enter key")
-                    except:
-                        # Try to find and click a verification button
-                        verify_selectors = [
-                            "//button[@type='submit']",
-                            "//button[contains(text(), 'Verify')]",
-                            "//button[contains(text(), 'Continue')]",
-                            "//button[contains(text(), 'Submit')]"
-                        ]
-                        
-                        for selector in verify_selectors:
-                            try:
-                                verify_button = WebDriverWait(driver, 3).until(
-                                    EC.element_to_be_clickable((By.XPATH, selector))
-                                )
-                                verify_button.click()
-                                print(f"Clicked verification button using selector: {selector}")
-                                break
-                            except:
-                                continue
-                    
-                    # Wait for verification to process
-                    time.sleep(5)
-                else:
-                    print("Failed to get 2FA code from Google Sheet")
-                    return False
-        except Exception as e:
-            print(f"Error handling 2FA verification: {e}")
-        
-        # Add a longer wait after 2FA processing to ensure full login completes
-        print("Waiting for full login session to initialize after 2FA...")
-        time.sleep(10)
-        
         # Check if login was successful
         login_successful = False
         
@@ -567,52 +412,6 @@ def login_to_quora(driver, email, password, gc=None, spreadsheet_id=None):
         if "quora.com/profile/" in driver.current_url:
             print("Login successful! (profile in URL)")
             login_successful = True
-            
-        # Perform a more definitive check - check if we can access user-specific features
-        try:
-            # 1. Try to access the user's profile directly
-            driver.get("https://www.quora.com/profile")
-            time.sleep(5)
-            
-            # Check if we're on a profile page (look for common profile elements)
-            profile_elements = [
-                "//div[contains(@class, 'q-text') and contains(text(), 'Profile')]",
-                "//div[contains(@class, 'q-text') and contains(text(), 'Followers')]",
-                "//div[contains(@class, 'q-text') and contains(text(), 'Following')]",
-                "//div[contains(text(), 'Edit Profile')]"
-            ]
-            
-            for selector in profile_elements:
-                try:
-                    element = driver.find_element(By.XPATH, selector)
-                    print(f"Found profile element: {element.text}")
-                    login_successful = True
-                    break
-                except:
-                    continue
-                    
-            # 2. Check if we can access the notifications page (only for logged-in users)
-            if not login_successful:
-                driver.get("https://www.quora.com/notifications")
-                time.sleep(3)
-                
-                if "quora.com/notifications" in driver.current_url:
-                    print("Successfully accessed notifications page - login confirmed")
-                    login_successful = True
-                else:
-                    print("Redirected away from notifications page - not fully logged in")
-                
-            # 3. Try to find user-specific UI elements
-            try:
-                user_elements = driver.find_elements(By.XPATH, "//div[contains(@aria-label, 'Your profile') or contains(@aria-label, 'Your content')]")
-                if user_elements:
-                    print(f"Found user-specific UI elements: {len(user_elements)}")
-                    login_successful = True
-            except:
-                pass
-        
-        except Exception as e:
-            print(f"Error during additional login validation: {e}")
         
         # Method 2: Check for avatar
         try:
@@ -631,7 +430,7 @@ def login_to_quora(driver, email, password, gc=None, spreadsheet_id=None):
             login_successful = True
         except:
             print("Could not find user menu")
-        
+            
         # Method 4: Check if "Login" button is still present
         try:
             driver.find_element(By.XPATH, "//button[contains(text(), 'Login') or contains(text(), 'Log In')]")
@@ -712,52 +511,6 @@ def login_to_quora(driver, email, password, gc=None, spreadsheet_id=None):
                 # Wait for login to complete
                 time.sleep(8)
                 
-                # Check for 2FA again in the alternate login flow
-                try:
-                    # Check for 2FA fields with more direct indicators
-                    verification_selectors = [
-                        "//input[contains(@placeholder, 'code')]",
-                        "//input[contains(@placeholder, 'verification')]"
-                    ]
-                    
-                    needs_2fa = False
-                    verification_field = None
-                    
-                    for selector in verification_selectors:
-                        try:
-                            verification_field = WebDriverWait(driver, 3).until(
-                                EC.presence_of_element_located((By.XPATH, selector))
-                            )
-                            needs_2fa = True
-                            print("Found 2FA verification code input field in alternate login")
-                            break
-                        except:
-                            pass
-                    
-                    # If 2FA is needed, try to get the code from Google Sheet
-                    if needs_2fa and verification_field and gc and spreadsheet_id:
-                        print("\n2FA VERIFICATION REQUIRED in alternate login")
-                        print("Please check your email for a verification code from Quora")
-                        print("Then enter the code in cell A1 of the 'Code' sheet in your Google Spreadsheet")
-                        
-                        # Try to get 2FA code from Google Sheet
-                        verification_code = get_2fa_code_from_sheet(gc, spreadsheet_id)
-                        
-                        if verification_code:
-                            # Enter the verification code
-                            verification_field.clear()
-                            verification_field.send_keys(verification_code)
-                            time.sleep(1)
-                            
-                            # Try to submit code
-                            verification_field.send_keys(Keys.RETURN)
-                            
-                            # Wait for verification to process
-                            time.sleep(5)
-                    
-                except Exception as e:
-                    print(f"Error handling 2FA in alternate login flow: {e}")
-                
                 # Check if login succeeded
                 if "quora.com/profile/" in driver.current_url:
                     login_successful = True
@@ -765,7 +518,7 @@ def login_to_quora(driver, email, password, gc=None, spreadsheet_id=None):
             except Exception as e:
                 print(f"Alternate login attempt failed: {e}")
         
-        # Test login by trying to access a generic Quora page if we think we're logged in
+        # Test login by trying to access a log page if we think we're logged in
         if login_successful:
             print("Testing login by accessing a generic Quora page...")
             # Instead of a specific answer log page, let's visit the main profile page or home page
@@ -1018,8 +771,7 @@ def main():
             if args.login:
                 quora_email, quora_password = get_quora_credentials()
                 if quora_email and quora_password:
-                    # Pass the Google Sheets client and spreadsheet ID for 2FA code retrieval
-                    login_success = login_to_quora(driver, quora_email, quora_password, gc, args.spreadsheet_id)
+                    login_success = login_to_quora(driver, quora_email, quora_password)
                     
                     if not login_success:
                         print("\nWARNING: Failed to login to Quora. Some features may not work properly:")

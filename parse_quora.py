@@ -8,7 +8,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
-from selenium.webdriver.common.keys import Keys
 
 # Import args from main for debug flag
 try:
@@ -93,61 +92,9 @@ def extract_post_date(driver, answer_url):
     for indicator in login_indicators:
         if isinstance(indicator, str) and indicator in page_source:
             restricted_access = True
-            print(f"Log page access restricted: Found indicator '{indicator}'")
             break
     
-    # Try a second load if we hit restrictions - sometimes this helps
-    if restricted_access:
-        print("Trying to reload log page...")
-        driver.get(log_url)
-        time.sleep(5)
-        
-        # Check again for restrictions
-        page_source = driver.page_source
-        restricted_access = False
-        
-        for indicator in login_indicators:
-            if isinstance(indicator, str) and indicator in page_source:
-                restricted_access = True
-                print(f"Log page still restricted after reload: Found indicator '{indicator}'")
-                break
-    
-    # If we can access the log page, try to extract dates
     if not restricted_access:
-        # First, check for date in the URL if it's a revision URL
-        if "/log/" in driver.current_url:
-            try:
-                url_date_match = re.search(r'/log/(\d{4})-(\d{1,2})-(\d{1,2})', driver.current_url)
-                if url_date_match:
-                    year, month, day = url_date_match.groups()
-                    date_obj = datetime.datetime(int(year), int(month), int(day))
-                    formatted_date = date_obj.strftime("%B %d, %Y")
-                    print(f"Extracted date from URL: {formatted_date}")
-                    
-                    # Return to original URL before returning the date
-                    driver.get(original_url)
-                    time.sleep(3)
-                    return formatted_date
-            except Exception as e:
-                print(f"Error extracting date from URL: {e}")
-        
-        try:
-            # Try to extract date directly from the page title
-            title = driver.title
-            if title:
-                title_date_match = re.search(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* (\d{1,2}),? (\d{4})', title)
-                if title_date_match:
-                    month, day, year = title_date_match.groups()
-                    formatted_date = f"{month} {day}, {year}"
-                    print(f"Extracted date from page title: {formatted_date}")
-                    
-                    # Return to original URL before returning the date
-                    driver.get(original_url)
-                    time.sleep(3)
-                    return formatted_date
-        except Exception as e:
-            print(f"Error extracting date from title: {e}")
-            
         try:
             # Look for dates via JavaScript
             date_spans_js = """
@@ -230,59 +177,6 @@ def extract_post_date(driver, answer_url):
         except Exception as e:
             print(f"Error extracting date from log page: {e}")
     
-    # If log page is restricted, try to extract date from the answer page directly
-    print("Trying to extract date from original answer page...")
-    driver.get(original_url)
-    time.sleep(3)
-    
-    # Try to find date on the answer page
-    try:
-        # Look for user activity info that may contain date
-        user_activity_js = """
-        // Find elements that commonly contain date information on answer pages
-        const dateContainers = Array.from(document.querySelectorAll('.q-text, .qu-color--gray_light, .qu-color--gray'));
-        return dateContainers.map(el => el.textContent.trim()).filter(text => 
-            /\\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{1,2},\\s+\\d{4}\\b/.test(text) ||
-            /\\b\\d{1,2}\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{4}\\b/.test(text) ||
-            /\\bUpdated\\s+\\w+\\s+\\d{1,2},\\s+\\d{4}\\b/.test(text) ||
-            /\\bAnswered\\s+\\w+\\s+\\d{1,2},\\s+\\d{4}\\b/.test(text)
-        );
-        """
-        
-        date_texts = driver.execute_script(user_activity_js)
-        
-        if date_texts and len(date_texts) > 0:
-            print(f"Found {len(date_texts)} potential date texts on answer page:")
-            
-            for i, text in enumerate(date_texts):
-                print(f"  Text #{i+1}: '{text}'")
-                
-                # Look for patterns like "Answered Jan 15, 2023" or "Updated January 15, 2023"
-                activity_match = re.search(r'(Answered|Updated|Posted|Written)\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})', text)
-                if activity_match:
-                    activity, month, day, year = activity_match.groups()
-                    formatted_date = f"{month} {day}, {year}"
-                    print(f"  Found activity date: {activity} on {formatted_date}")
-                    return formatted_date
-                
-                # Try standard date format
-                std_date_match = re.search(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})', text)
-                if std_date_match:
-                    month, day, year = std_date_match.groups()
-                    formatted_date = f"{month} {day}, {year}"
-                    print(f"  Found standard date: {formatted_date}")
-                    return formatted_date
-                
-                # Try alternative date format
-                alt_date_match = re.search(r'(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|January|February|March|April|May|June|July|August|September|October|November|December),?\s+(\d{4})', text)
-                if alt_date_match:
-                    day, month, year = alt_date_match.groups()
-                    formatted_date = f"{month} {day}, {year}"
-                    print(f"  Found alternative date format: {formatted_date}")
-                    return formatted_date
-    except Exception as e:
-        print(f"Error extracting date from answer page: {e}")
-    
     # If no date found in spans, try page source
     try:
         print("Trying to extract date from page source...")
@@ -298,12 +192,9 @@ def extract_post_date(driver, answer_url):
             r'(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}, \d{4} at \d{1,2}:\d{2}(:\d{2})? [APM]{2}'
         ]
         
-        # Get page source from both log page and answer page
-        all_page_source = page_source + driver.page_source
-        
         for i, pattern in enumerate(date_patterns):
             try:
-                matches = re.findall(pattern, all_page_source)
+                matches = re.findall(pattern, page_source)
                 if matches and len(matches) > 0:
                     print(f"  Found {len(matches)} matches for pattern #{i+1}")
                     
@@ -311,7 +202,7 @@ def extract_post_date(driver, answer_url):
                     if i == 0:  # Standard format
                         if isinstance(matches[0], tuple):
                             for match in matches:
-                                full_match = re.search(pattern, all_page_source)
+                                full_match = re.search(pattern, page_source)
                                 if full_match:
                                     all_matches.append(full_match.group(0))
                         else:
@@ -322,7 +213,7 @@ def extract_post_date(driver, answer_url):
                                 try:
                                     # Find the full match in the page source
                                     if match and len(match) > 0:
-                                        full_match = re.search(r'\d{1,2} ' + re.escape(match[0]) + r',? \d{4}', all_page_source)
+                                        full_match = re.search(r'\d{1,2} ' + re.escape(match[0]) + r',? \d{4}', page_source)
                                         if full_match:
                                             # Convert to standard format
                                             components = re.search(r'(\d{1,2}) (' + re.escape(match[0]) + r'),? (\d{4})', full_match.group(0))
@@ -343,10 +234,10 @@ def extract_post_date(driver, answer_url):
                                 except Exception as e:
                                     print(f"    Error processing non-tuple match: {e}")
                     elif i == 2:  # With time
-                        if matches and len(matches) > 0 and isinstance(matches[0], tuple):
+                        if isinstance(matches[0], tuple):
                             for match in matches:
                                 try:
-                                    full_match = re.search(pattern, all_page_source)
+                                    full_match = re.search(pattern, page_source)
                                     if full_match:
                                         all_matches.append(full_match.group(0))
                                 except Exception as e:
@@ -358,15 +249,14 @@ def extract_post_date(driver, answer_url):
         
         if all_matches and len(all_matches) > 0:
             print(f"Found {len(all_matches)} total date matches in page source")
-            # Get the most complete date (prefer dates with time)
-            datetime_matches = [m for m in all_matches if " at " in m]
-            if datetime_matches:
-                formatted_date = datetime_matches[0]
-            else:
-                # Get the last match (usually the creation date)
-                formatted_date = all_matches[-1]
-                
+            # Get the last match (usually the creation date)
+            last_match = all_matches[-1]
+            formatted_date = last_match
             print(f"Successfully parsed date from page source: {formatted_date}")
+            
+            # Return to original URL before returning the date
+            driver.get(original_url)
+            time.sleep(3)
             return formatted_date
         else:
             print("No usable date matches found in page source")
@@ -374,6 +264,11 @@ def extract_post_date(driver, answer_url):
         print(f"Error extracting date from page source: {e}")
         import traceback
         traceback.print_exc()
+    
+    # Navigate back to the original answer page
+    print(f"Navigating back to original URL: {original_url}")
+    driver.get(original_url)
+    time.sleep(3)
     
     # If all methods fail, use current date with a prefix
     current_date = system_now.strftime("%B %d, %Y")
@@ -471,9 +366,6 @@ def extract_view_count(driver):
 def extract_upvote_count(driver):
     """Extract the number of upvotes from the answer page"""
     try:
-        # Wait a bit to ensure all dynamic content loads
-        time.sleep(2)
-        
         # Try the specific XPath provided by the user
         try:
             # XPath to the upvote number in the button
@@ -486,77 +378,6 @@ def extract_upvote_count(driver):
                 return upvote_count
         except:
             print("Could not find upvote count using specific XPath")
-        
-        # Add more robust XPath selectors that work with authenticated sessions
-        authenticated_xpaths = [
-            "//button[contains(@aria-label, 'Upvote')]//*[contains(@class, 'q-text')][text()[1] > 0]",
-            "//button[contains(@aria-label, 'Upvote')]//span[contains(@class, 'q-text')][string-length(text()) < 10]",
-            "//button[contains(@aria-label, 'Upvote')]//div[contains(@class, 'q-box')]//span[text()[1] > 0]"
-        ]
-        
-        for selector in authenticated_xpaths:
-            try:
-                upvote_elements = driver.find_elements(By.XPATH, selector)
-                for element in upvote_elements:
-                    text = element.text.strip()
-                    if text and text.isdigit() and len(text) < 10:
-                        print(f"Found upvote count from authenticated XPath: {text}")
-                        return text
-            except Exception as e:
-                if args.debug:
-                    print(f"Error with authenticated XPath: {e}")
-        
-        # Try to find and click "View Upvotes" button if present
-        try:
-            view_upvotes_selectors = [
-                "//span[contains(text(), 'View Upvote') or contains(text(), 'view upvote')]",
-                "//button[contains(@aria-label, 'View') and contains(@aria-label, 'upvote')]",
-                "//div[contains(text(), 'View Upvote') or contains(text(), 'view upvote')]"
-            ]
-            
-            for selector in view_upvotes_selectors:
-                try:
-                    view_buttons = driver.find_elements(By.XPATH, selector)
-                    if view_buttons and len(view_buttons) > 0:
-                        print(f"Found 'View Upvotes' button, attempting to click...")
-                        view_buttons[0].click()
-                        time.sleep(2)  # Wait for modal to appear
-                        
-                        # Look for the upvote count in the modal
-                        try:
-                            modal_count_selectors = [
-                                "//div[contains(@class, 'modal')]//span[contains(text(), 'upvote') or contains(text(), 'Upvote')]",
-                                "//div[contains(@role, 'dialog')]//span[contains(@class, 'q-text')][contains(text(), 'upvote')]"
-                            ]
-                            
-                            for modal_selector in modal_count_selectors:
-                                modal_elements = driver.find_elements(By.XPATH, modal_selector)
-                                for element in modal_elements:
-                                    text = element.text.strip().lower()
-                                    upvotes_match = re.search(r'(\d+(?:,\d+)*(?:\.\d+)?(?:[KkMm])?)\s+upvotes?', text, re.IGNORECASE)
-                                    if upvotes_match:
-                                        upvote_count = upvotes_match.group(1)
-                                        print(f"Found upvote count in modal: {upvote_count}")
-                                        
-                                        # Convert K/M notation to full numbers
-                                        if 'k' in upvote_count.lower():
-                                            numeric_upvotes = float(upvote_count.lower().replace('k', '')) * 1000
-                                            return str(int(numeric_upvotes))
-                                        elif 'm' in upvote_count.lower():
-                                            numeric_upvotes = float(upvote_count.lower().replace('m', '')) * 1000000
-                                            return str(int(numeric_upvotes))
-                                        else:
-                                            return upvote_count.replace(',', '')
-                            
-                            # Close the modal by clicking outside or escape key
-                            webdriver.ActionChains(driver).send_keys(Keys.ESCAPE).perform()
-                            time.sleep(1)
-                        except Exception as e:
-                            print(f"Error extracting upvote count from modal: {e}")
-                except:
-                    continue
-        except Exception as e:
-            print(f"Error with view upvotes button: {e}")
             
         # Add a specific JavaScript finder based on the HTML structure provided in the example
         try:
@@ -593,37 +414,12 @@ def extract_upvote_count(driver):
                 }
             }
             
-            // Check for other common upvote count containers
-            const upvoteTextElements = Array.from(document.querySelectorAll('*'))
-                .filter(el => {
-                    const text = el.textContent.trim();
-                    return (text.includes('upvote') || text.includes('Upvote')) && 
-                           /\\d+/.test(text) &&
-                           !text.includes('View'); // Exclude "View Upvotes" buttons
-                });
-                
-            for (let el of upvoteTextElements) {
-                const match = el.textContent.match(/(\\d+(?:,\\d+)*(?:\\.\\d+)?(?:K|k|M|m)?)\\s+upvotes?/i);
-                if (match && match[1]) {
-                    return match[1];
-                }
-            }
-            
             return null;
             """
             specific_count = driver.execute_script(js_specific_finder)
             if specific_count:
                 print(f"Found upvote count via specific HTML structure: {specific_count}")
-                
-                # Convert K/M notation to full numbers
-                if 'k' in specific_count.lower():
-                    numeric_upvotes = float(specific_count.lower().replace('k', '')) * 1000
-                    return str(int(numeric_upvotes))
-                elif 'm' in specific_count.lower():
-                    numeric_upvotes = float(specific_count.lower().replace('m', '')) * 1000000
-                    return str(int(numeric_upvotes))
-                else:
-                    return specific_count.replace(',', '')
+                return specific_count
         except Exception as e:
             print(f"Specific HTML structure extraction failed: {e}")
             
@@ -650,16 +446,6 @@ def extract_upvote_count(driver):
             
             if (upvoteSpans.length > 0) {
                 return upvoteSpans[0].textContent.trim();
-            }
-            
-            // Additional approach: find any numeric content in elements with 'upvote' in label or aria-label
-            const upvoteElements = Array.from(document.querySelectorAll('[aria-label*="upvote" i], [aria-label*="Upvote" i]'));
-            for (let element of upvoteElements) {
-                const text = element.textContent.trim();
-                const match = text.match(/\\d+/);
-                if (match) {
-                    return match[0];
-                }
             }
             
             return null;
