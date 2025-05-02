@@ -1,0 +1,98 @@
+name: Daily Quora Parser
+
+on:
+  schedule:
+    # Run at 3 AM UTC every day
+    - cron: '0 3 * * *'
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  run_parser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Chrome
+        run: |
+          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install webdriver-manager selenium gspread google-oauth2-tool
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Create credentials helper
+        run: |
+          cat > create_credentials.py << 'SCRIPTEND'
+          import os
+          import json
+
+          # Create a properly formatted credentials file
+          credentials = {
+              "type": "service_account",
+              "project_id": os.environ.get("GCP_PROJECT_ID"),
+              "private_key_id": os.environ.get("GCP_PRIVATE_KEY_ID"),
+              "private_key": os.environ.get("GCP_PRIVATE_KEY").replace("\\n", "\n"),
+              "client_email": os.environ.get("GCP_CLIENT_EMAIL"),
+              "client_id": os.environ.get("GCP_CLIENT_ID"),
+              "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+              "token_uri": "https://oauth2.googleapis.com/token",
+              "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+              "client_x509_cert_url": os.environ.get("GCP_CLIENT_X509_CERT_URL"),
+              "universe_domain": "googleapis.com",
+              "user_email": os.environ.get("QUORA_EMAIL"),
+              "user_password": os.environ.get("QUORA_PASSWORD")
+          }
+
+          # Write credentials to file
+          with open("credentials.json", "w") as f:
+              json.dump(credentials, f, indent=2)
+
+          print("Credentials file created successfully")
+          SCRIPTEND
+
+      - name: Set up credentials
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_PRIVATE_KEY_ID: ${{ secrets.GCP_PRIVATE_KEY_ID }}
+          GCP_PRIVATE_KEY: ${{ secrets.GCP_PRIVATE_KEY }}
+          GCP_CLIENT_EMAIL: ${{ secrets.GCP_CLIENT_EMAIL }}
+          GCP_CLIENT_ID: ${{ secrets.GCP_CLIENT_ID }}
+          GCP_CLIENT_X509_CERT_URL: ${{ secrets.GCP_CLIENT_X509_CERT_URL }}
+          QUORA_EMAIL: ${{ secrets.QUORA_EMAIL }}
+          QUORA_PASSWORD: ${{ secrets.QUORA_PASSWORD }}
+        run: |
+          python create_credentials.py
+
+      - name: Add notice about 2FA
+        run: |
+          echo "======================================================================"
+          echo "NOTICE: If the workflow pauses for 2FA verification, you need to:"
+          echo "1. Check your email for a verification code from Quora"
+          echo "2. Add the code to cell A1 in the 'Code' sheet of your Google Spreadsheet"
+          echo "3. The workflow will check for the code every 20 seconds (5 attempts)"
+          echo "======================================================================"
+
+      - name: Run Quora parser
+        run: |
+          python main.py --headless --credentials_file=credentials.json
+
+      - name: Upload logs if failed
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: logs
+          path: |
+            *.log
+            error*.txt
+            *.png 
