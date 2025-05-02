@@ -556,6 +556,10 @@ def login_to_quora(driver, email, password, gc=None, spreadsheet_id=None):
         except Exception as e:
             print(f"Error handling 2FA verification: {e}")
         
+        # Add a longer wait after 2FA processing to ensure full login completes
+        print("Waiting for full login session to initialize after 2FA...")
+        time.sleep(10)
+        
         # Check if login was successful
         login_successful = False
         
@@ -563,6 +567,52 @@ def login_to_quora(driver, email, password, gc=None, spreadsheet_id=None):
         if "quora.com/profile/" in driver.current_url:
             print("Login successful! (profile in URL)")
             login_successful = True
+            
+        # Perform a more definitive check - check if we can access user-specific features
+        try:
+            # 1. Try to access the user's profile directly
+            driver.get("https://www.quora.com/profile")
+            time.sleep(5)
+            
+            # Check if we're on a profile page (look for common profile elements)
+            profile_elements = [
+                "//div[contains(@class, 'q-text') and contains(text(), 'Profile')]",
+                "//div[contains(@class, 'q-text') and contains(text(), 'Followers')]",
+                "//div[contains(@class, 'q-text') and contains(text(), 'Following')]",
+                "//div[contains(text(), 'Edit Profile')]"
+            ]
+            
+            for selector in profile_elements:
+                try:
+                    element = driver.find_element(By.XPATH, selector)
+                    print(f"Found profile element: {element.text}")
+                    login_successful = True
+                    break
+                except:
+                    continue
+                    
+            # 2. Check if we can access the notifications page (only for logged-in users)
+            if not login_successful:
+                driver.get("https://www.quora.com/notifications")
+                time.sleep(3)
+                
+                if "quora.com/notifications" in driver.current_url:
+                    print("Successfully accessed notifications page - login confirmed")
+                    login_successful = True
+                else:
+                    print("Redirected away from notifications page - not fully logged in")
+                
+            # 3. Try to find user-specific UI elements
+            try:
+                user_elements = driver.find_elements(By.XPATH, "//div[contains(@aria-label, 'Your profile') or contains(@aria-label, 'Your content')]")
+                if user_elements:
+                    print(f"Found user-specific UI elements: {len(user_elements)}")
+                    login_successful = True
+            except:
+                pass
+        
+        except Exception as e:
+            print(f"Error during additional login validation: {e}")
         
         # Method 2: Check for avatar
         try:
@@ -581,7 +631,7 @@ def login_to_quora(driver, email, password, gc=None, spreadsheet_id=None):
             login_successful = True
         except:
             print("Could not find user menu")
-            
+        
         # Method 4: Check if "Login" button is still present
         try:
             driver.find_element(By.XPATH, "//button[contains(text(), 'Login') or contains(text(), 'Log In')]")

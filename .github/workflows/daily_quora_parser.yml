@@ -81,6 +81,15 @@ jobs:
           echo "1. Check your email for a verification code from Quora"
           echo "2. Add the code to cell A1 in the 'Code' sheet of your Google Spreadsheet"
           echo "3. The workflow will check for the code every 20 seconds (5 attempts)"
+          echo "4. If the login still fails, check the logs for details"
+          echo "======================================================================"
+          echo ""
+          echo "TROUBLESHOOTING LOGIN ISSUES:"
+          echo "- 2FA issues can sometimes persist across multiple runs"
+          echo "- You may need to clear browser data, IP address restrictions, or time-based constraints"
+          echo "- Using standard XPaths for parsing will still work without login for basic metrics"
+          echo "- Consider logging in manually on a different device from the same IP as GitHub Actions"
+          echo "- Check that your script is using all available techniques for extracting data"
           echo "======================================================================"
 
       - name: Run Quora parser
