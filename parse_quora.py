@@ -57,6 +57,7 @@ def extract_post_date(driver, answer_url):
     """
     Extract the date when the post was created.
     Focuses on extracting the exact creation date from the log page.
+    The earliest date in the log represents the original post date.
     """
     # Get current date information for fallback
     system_now = datetime.datetime.now()
@@ -131,133 +132,293 @@ def extract_post_date(driver, answer_url):
             if date_spans and len(date_spans) > 0:
                 print(f"Found {len(date_spans)} potential date spans:")
                 
-                # Process all spans, but focus especially on those with datetime patterns
+                # Process all spans, focusing on finding the earliest date
+                all_found_dates = []
+                
                 for i, span_text in enumerate(date_spans):
                     print(f"  Span #{i+1}: '{span_text}'")
                     
-                    # Look for date with time pattern (most specific)
+                    # Look for dates with time pattern (most specific)
                     time_date_match = re.search(r'(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2}), (\d{4}) at (\d{1,2}):(\d{2})(?::(\d{2}))? ([APM]{2})', span_text)
                     
                     if time_date_match:
                         print(f"  Found date with time in span #{i+1}")
-                        # Return the exact date string found in the log page
                         formatted_date = span_text
-                        print(f"  Successfully found date: {formatted_date}")
                         
-                        # Return to original URL before returning the date
-                        driver.get(original_url)
-                        time.sleep(3)
-                        return formatted_date
+                        # Store this date for comparison
+                        try:
+                            # Parse the date to allow finding the earliest one
+                            month = time_date_match.group(1)
+                            day = int(time_date_match.group(2))
+                            year = int(time_date_match.group(3))
+                            hour = int(time_date_match.group(4))
+                            minute = int(time_date_match.group(5))
+                            
+                            # Adjust for AM/PM
+                            if time_date_match.group(7) == "PM" and hour < 12:
+                                hour += 12
+                            elif time_date_match.group(7) == "AM" and hour == 12:
+                                hour = 0
+                                
+                            # Create a datetime object for comparison
+                            if time_date_match.group(6):  # If seconds are included
+                                second = int(time_date_match.group(6))
+                            else:
+                                second = 0
+                            
+                            # Convert month name to month number
+                            month_map = {
+                                'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6,
+                                'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12,
+                                'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+                                'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+                            }
+                            month_num = month_map.get(month, 1)  # Default to 1 if not found
+                            
+                            date_obj = datetime.datetime(year, month_num, day, hour, minute, second)
+                            all_found_dates.append((date_obj, formatted_date))
+                        except Exception as e:
+                            print(f"    Error parsing date for comparison: {e}")
                     
                     # Try simpler date pattern if full pattern didn't match
                     date_match = re.search(r'(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2}), (\d{4})', span_text)
-                    if date_match:
+                    if date_match and not time_date_match:
                         print(f"  Found simple date in span #{i+1}")
-                        # Return the exact date string found
                         formatted_date = f"{date_match.group(1)} {date_match.group(2)}, {date_match.group(3)}"
-                        print(f"  Successfully found simple date: {formatted_date}")
                         
-                        # Return to original URL before returning the date
-                        driver.get(original_url)
-                        time.sleep(3)
-                        return formatted_date
+                        # Store this date for comparison
+                        try:
+                            # Parse the date to allow finding the earliest one
+                            month = date_match.group(1)
+                            day = int(date_match.group(2))
+                            year = int(date_match.group(3))
+                            
+                            # Convert month name to month number
+                            month_map = {
+                                'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6,
+                                'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12,
+                                'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+                                'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+                            }
+                            month_num = month_map.get(month, 1)  # Default to 1 if not found
+                            
+                            # Use midnight as time
+                            date_obj = datetime.datetime(year, month_num, day, 0, 0, 0)
+                            all_found_dates.append((date_obj, formatted_date))
+                        except Exception as e:
+                            print(f"    Error parsing date for comparison: {e}")
                     
                     # Try alternative date formats (e.g., "1 Jan 2023")
                     alt_date_match = re.search(r'(\d{1,2}) (January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec),? (\d{4})', span_text)
-                    if alt_date_match:
+                    if alt_date_match and not time_date_match and not date_match:
                         print(f"  Found alternative date format in span #{i+1}")
-                        # Convert to standard format
                         formatted_date = f"{alt_date_match.group(2)} {alt_date_match.group(1)}, {alt_date_match.group(3)}"
-                        print(f"  Successfully found and formatted alternative date: {formatted_date}")
                         
-                        # Return to original URL before returning the date
-                        driver.get(original_url)
-                        time.sleep(3)
-                        return formatted_date
+                        # Store this date for comparison
+                        try:
+                            # Parse the date to allow finding the earliest one
+                            day = int(alt_date_match.group(1))
+                            month = alt_date_match.group(2)
+                            year = int(alt_date_match.group(3))
+                            
+                            # Convert month name to month number
+                            month_map = {
+                                'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6,
+                                'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12,
+                                'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+                                'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+                            }
+                            month_num = month_map.get(month, 1)  # Default to 1 if not found
+                            
+                            # Use midnight as time
+                            date_obj = datetime.datetime(year, month_num, day, 0, 0, 0)
+                            all_found_dates.append((date_obj, formatted_date))
+                        except Exception as e:
+                            print(f"    Error parsing date for comparison: {e}")
+                
+                # After collecting all dates, find the earliest one
+                if all_found_dates:
+                    # Sort dates by datetime object (first element in each tuple)
+                    all_found_dates.sort(key=lambda x: x[0])
+                    
+                    # Get the earliest date (first element after sorting)
+                    earliest_date_tuple = all_found_dates[0]
+                    earliest_formatted_date = earliest_date_tuple[1]
+                    
+                    print(f"  Found the earliest date: {earliest_formatted_date}")
+                    
+                    # Return to original URL before returning the date
+                    driver.get(original_url)
+                    time.sleep(3)
+                    return earliest_formatted_date
+                
+                # If we couldn't parse any dates for sorting, try another approach
+                # Try to identify a potential creation/posted event
+                try:
+                    # Use JavaScript to find specific text that might indicate the original posting
+                    find_creation_js = """
+                    const allDivs = document.querySelectorAll('div');
+                    for (const div of allDivs) {
+                        const text = div.textContent.toLowerCase();
+                        if (text.includes('posted') || text.includes('created') || text.includes('wrote') || 
+                            text.includes('answered') || text.includes('original answer') ||
+                            text.includes('first posted') || text.includes('initially answered')) {
+                            
+                            // Get the closest element containing a date
+                            let currentEl = div;
+                            let dateText = '';
+                            
+                            // Look in the element itself
+                            if (/(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\s+\\d{1,2},\\s+\\d{4}/.test(text)) {
+                                dateText = text;
+                            } 
+                            // Look for a date in nearby elements
+                            else {
+                                const nearbyElements = [];
+                                // Check siblings
+                                if (currentEl.previousElementSibling) nearbyElements.push(currentEl.previousElementSibling);
+                                if (currentEl.nextElementSibling) nearbyElements.push(currentEl.nextElementSibling);
+                                // Check children
+                                for (const child of currentEl.children) {
+                                    nearbyElements.push(child);
+                                }
+                                
+                                for (const el of nearbyElements) {
+                                    const elText = el.textContent;
+                                    if (/(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\s+\\d{1,2},\\s+\\d{4}/.test(elText)) {
+                                        dateText = elText;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            if (dateText) {
+                                return { element: div.textContent, dateText: dateText };
+                            }
+                        }
+                    }
+                    return null;
+                    """
+                    
+                    creation_info = driver.execute_script(find_creation_js)
+                    if creation_info:
+                        print(f"Found creation indication: {creation_info['element']}")
+                        print(f"Date text: {creation_info['dateText']}")
+                        
+                        # Extract the date from the text
+                        date_match = re.search(r'(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2}), (\d{4})(?: at (\d{1,2}):(\d{2})(?::(\d{2}))? ([APM]{2}))?', creation_info['dateText'])
+                        
+                        if date_match:
+                            if date_match.group(4):  # If time is included
+                                formatted_date = f"{date_match.group(1)} {date_match.group(2)}, {date_match.group(3)} at {date_match.group(4)}:{date_match.group(5)}"
+                                if date_match.group(6):
+                                    formatted_date += f":{date_match.group(6)}"
+                                formatted_date += f" {date_match.group(7)}"
+                            else:
+                                formatted_date = f"{date_match.group(1)} {date_match.group(2)}, {date_match.group(3)}"
+                                
+                            print(f"  Successfully found post creation date: {formatted_date}")
+                            
+                            # Return to original URL before returning the date
+                            driver.get(original_url)
+                            time.sleep(3)
+                            return formatted_date
+                except Exception as e:
+                    print(f"Error looking for creation indication: {e}")
         except Exception as e:
             print(f"Error extracting date from log page: {e}")
     
-    # If no date found in spans, try page source
+    # If no date found in spans, try page source for the earliest date
     try:
         print("Trying to extract date from page source...")
         all_matches = []
         
         # Look for date patterns in the page source (more comprehensive)
         date_patterns = [
+            # With time: January 1, 2023 at 12:00 PM (most specific)
+            r'(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2}), (\d{4}) at (\d{1,2}):(\d{2})(?::(\d{2}))? ([APM]{2})',
             # Standard format: January 1, 2023
-            r'(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}, \d{4}',
+            r'(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2}), (\d{4})',
             # Alternative format: 1 January 2023
-            r'\d{1,2} (January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec),? \d{4}',
-            # With time: January 1, 2023 at 12:00 PM
-            r'(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{1,2}, \d{4} at \d{1,2}:\d{2}(:\d{2})? [APM]{2}'
+            r'(\d{1,2}) (January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec),? (\d{4})'
         ]
         
-        for i, pattern in enumerate(date_patterns):
-            try:
-                matches = re.findall(pattern, page_source)
-                if matches and len(matches) > 0:
-                    print(f"  Found {len(matches)} matches for pattern #{i+1}")
+        # Find all dates in the page
+        all_date_objects = []
+
+        for pattern in date_patterns:
+            matches = re.findall(pattern, page_source)
+            for match in matches:
+                try:
+                    if len(match) >= 7:  # Full date with time format
+                        month = match[0]
+                        day = int(match[1])
+                        year = int(match[2])
+                        hour = int(match[3])
+                        minute = int(match[4])
+                        
+                        # Adjust for AM/PM
+                        if match[6] == "PM" and hour < 12:
+                            hour += 12
+                        elif match[6] == "AM" and hour == 12:
+                            hour = 0
+                            
+                        # Create a datetime object for comparison
+                        if match[5]:  # If seconds are included
+                            second = int(match[5])
+                        else:
+                            second = 0
+                        
+                        # Format the date string
+                        formatted_date = f"{month} {day}, {year} at {match[3]}:{match[4]}"
+                        if match[5]:
+                            formatted_date += f":{match[5]}"
+                        formatted_date += f" {match[6]}"
+                        
+                    elif len(match) >= 3:  # Simple date format
+                        if re.match(r'\d+', match[0]):  # If first group is a number (alternative format)
+                            day = int(match[0])
+                            month = match[1]
+                            year = int(match[2])
+                            formatted_date = f"{month} {day}, {year}"
+                        else:  # Standard format
+                            month = match[0]
+                            day = int(match[1])
+                            year = int(match[2])
+                            formatted_date = f"{month} {day}, {year}"
+                        
+                        hour, minute, second = 0, 0, 0  # Default to midnight
                     
-                    # Process matches based on the pattern
-                    if i == 0:  # Standard format
-                        if isinstance(matches[0], tuple):
-                            for match in matches:
-                                full_match = re.search(pattern, page_source)
-                                if full_match:
-                                    all_matches.append(full_match.group(0))
-                        else:
-                            all_matches.extend(matches)
-                    elif i == 1:  # Alternative format
-                        if matches and len(matches) > 0 and isinstance(matches[0], tuple):
-                            for match in matches:
-                                try:
-                                    # Find the full match in the page source
-                                    if match and len(match) > 0:
-                                        full_match = re.search(r'\d{1,2} ' + re.escape(match[0]) + r',? \d{4}', page_source)
-                                        if full_match:
-                                            # Convert to standard format
-                                            components = re.search(r'(\d{1,2}) (' + re.escape(match[0]) + r'),? (\d{4})', full_match.group(0))
-                                            if components and len(components.groups()) >= 3:
-                                                day, month, year = components.groups()
-                                                all_matches.append(f"{month} {day}, {year}")
-                                except Exception as e:
-                                    print(f"    Error processing match: {e}")
-                        else:
-                            # Try to extract components from non-tuple matches
-                            for match in matches:
-                                try:
-                                    if not isinstance(match, tuple):  # Skip if it's already a tuple
-                                        components = re.search(r'(\d{1,2}) (January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec),? (\d{4})', match)
-                                        if components and len(components.groups()) >= 3:
-                                            day, month, year = components.groups()
-                                            all_matches.append(f"{month} {day}, {year}")
-                                except Exception as e:
-                                    print(f"    Error processing non-tuple match: {e}")
-                    elif i == 2:  # With time
-                        if isinstance(matches[0], tuple):
-                            for match in matches:
-                                try:
-                                    full_match = re.search(pattern, page_source)
-                                    if full_match:
-                                        all_matches.append(full_match.group(0))
-                                except Exception as e:
-                                    print(f"    Error processing time match: {e}")
-                        else:
-                            all_matches.extend(matches)
-            except Exception as e:
-                print(f"Error processing pattern #{i+1}: {e}")
+                    # Convert month name to month number
+                    month_map = {
+                        'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6,
+                        'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12,
+                        'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+                        'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+                    }
+                    
+                    if isinstance(month, str):
+                        month_num = month_map.get(month, 1)  # Default to 1 if not found
+                    else:
+                        month_num = month
+                    
+                    date_obj = datetime.datetime(year, month_num, day, hour, minute, second)
+                    all_date_objects.append((date_obj, formatted_date))
+                    
+                except Exception as e:
+                    print(f"    Error processing date match: {e}")
         
-        if all_matches and len(all_matches) > 0:
-            print(f"Found {len(all_matches)} total date matches in page source")
-            # Get the last match (usually the creation date)
-            last_match = all_matches[-1]
-            formatted_date = last_match
-            print(f"Successfully parsed date from page source: {formatted_date}")
+        # Find the earliest date
+        if all_date_objects:
+            # Sort by datetime
+            all_date_objects.sort(key=lambda x: x[0])
+            earliest_date = all_date_objects[0][1]
+            print(f"Successfully found earliest date from page source: {earliest_date}")
             
             # Return to original URL before returning the date
             driver.get(original_url)
             time.sleep(3)
-            return formatted_date
+            return earliest_date
         else:
             print("No usable date matches found in page source")
     except Exception as e:
